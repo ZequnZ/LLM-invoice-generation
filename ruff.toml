@@ -1,0 +1,21 @@
+# Same as Black.
+line-length = 88
+indent-width = 4
+
+# Assume Python 3.12
+target-version = "py312"
+
+[lint]
+# Enable pycodestyle (`E`, `W`), Pyflakes (`F`), pyupgrade (`UP`)
+# McCabe complexity (`C901`), isort (`I`) codes by default.
+select = ["E", "F", "W", "C901", "I", "UP"]
+ignore = ["E501"]
+
+# Allow fix for all enabled rules (when `--fix`) is provided.
+fixable = ["ALL"]
+unfixable = []
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

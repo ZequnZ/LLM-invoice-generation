@@ -1,0 +1,52 @@
+services:
+  server:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    
+    # For local testing
+    volumes:
+      - type: bind
+        source: ./.env
+        target: /app/.env
+      # - ./src/:/app/src/
+    stdin_open: true
+    tty: true
+    command: gradio src/gradio_app.py
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+      - redis-importer
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: password
+    links:
+      - redis 
+
+  redis:
+    image: redis:latest
+    # For local testing
+    ports:
+      - "6379:6379"
+    expose:
+      - "6379"
+    command: redis-server --loglevel warning --requirepass password
+
+  redis-importer:
+    image: python:3.12-slim
+    volumes:
+      - ./src/redis_importer:/src/redis_importer
+      - ./src/redis_importer/mock_data.json:/src/redis_importer/mock_data.json
+    depends_on:
+      - redis
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: password
+    command: >
+      sh -c "
+      pip install redis &&
+      python /src/redis_importer/import_data.py
+      "

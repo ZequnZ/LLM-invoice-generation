@@ -1,0 +1,92 @@
+{
+  "1": {
+    "company_id": 1,
+    "business_name": "Tech Innovations Inc.",
+    "business_address": "456 Tech Park, Silicon Valley, CA",
+    "business_contact": "Phone: +1-555-123-4567 | Email: info@techinnovations.com",
+    "item_list": [
+      {
+        "item_name": "AI Software License",
+        "unit_price": 199.99,
+        "tax_rate": 7
+      },
+      {
+        "item_name": "Cloud Storage Subscription",
+        "unit_price": 29.99,
+        "tax_rate": 10.5
+      }
+    ],
+    "customer_list": [
+      {
+        "customer_name": "Global Corp",
+        "customer_address": "123 Global St, New York, NY",
+        "customer_contact": "billing@globalcorp.com"
+      },
+      {
+        "customer_name": "Innovate Ltd",
+        "customer_address": "789 Innovate Ave, Austin, TX",
+        "customer_contact": "contact@innovateltd.com"
+      }
+    ]
+  },
+  "2": {
+    "company_id": 2,
+    "business_name": "Fashion Hub",
+    "business_address": "789 Style St, Los Angeles, CA",
+    "business_contact": "Phone: +1-555-987-6543 | Email: support@fashionhub.com",
+    "item_list": [
+      {
+        "item_name": "Designer Handbag",
+        "unit_price": 299.99,
+        "tax_rate": 18
+      },
+      {
+        "item_name": "Luxury Watch",
+        "unit_price": 499.99,
+        "tax_rate": 17
+      }
+    ],
+    "customer_list": [
+      {
+        "customer_name": "Chic Boutique",
+        "customer_address": "456 Trendy Rd, Miami, FL",
+        "customer_contact": "orders@chicboutique.com"
+      },
+      {
+        "customer_name": "Style Emporium",
+        "customer_address": "123 Fashion Ave, New York, NY",
+        "customer_contact": "info@styleemporium.com"
+      }
+    ]
+  },
+  "3": {
+    "company_id": 3,
+    "business_name": "HealthPlus Medical",
+    "business_address": "321 Wellness Blvd, Chicago, IL",
+    "business_contact": "Phone: +1-555-654-3210 | Email: contact@healthplus.com",
+    "item_list": [
+      {
+        "item_name": "Health Checkup Package",
+        "unit_price": 199.99,
+        "tax_rate": 12
+      },
+      {
+        "item_name": "Flu Vaccine",
+        "unit_price": 29.99,
+        "tax_rate": 14.5
+      }
+    ],
+    "customer_list": [
+      {
+        "customer_name": "Wellness Center",
+        "customer_address": "789 Care St, San Francisco, CA",
+        "customer_contact": "info@wellnesscenter.com"
+      },
+      {
+        "customer_name": "Healthy Life Clinic",
+        "customer_address": "456 Health Ave, Seattle, WA",
+        "customer_contact": "support@healthylifeclinic.com"
+      }
+    ]
+  }
+}
