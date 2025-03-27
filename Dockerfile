@@ -44,7 +44,7 @@ COPY --from=builder /.venv ${VIRTUAL_ENV}
 COPY Taskfile.yml /app/
 COPY src /app/src
 
-EXPOSE 8001
+EXPOSE 8002
 
 # This is needed to for running locally
 ARG INSTALL_POETRY=false
