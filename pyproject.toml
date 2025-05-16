@@ -1,29 +1,23 @@
 [project]
 name = "llm-invoice-generation"
 version = "0.1.0"
-description = ""
-authors = [
-    {name = "ZequnZ", email = "zequn.zhou007@gmail.com"}
-]
+description = "Invoice Generation Application backed by LLM"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pydantic (>=2.10.6,<3.0.0)",
-    "redis (>=5.2.1,<6.0.0)",
-    "openai (>=1.63.0,<2.0.0)",
-    "gradio (>=5.18.0,<6.0.0)",
-    "python-dotenv (>=1.0.1,<2.0.0)"
+    "gradio>=5.29.1",
+    "openai>=1.78.1",
+    "pydantic>=2.11.4",
+    "python-dotenv>=1.1.0",
+    "redis>=6.1.0",
 ]
 
+[tool.uv]
+package = false
 
-[build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.group.dev.dependencies]
-ruff = "^0.9.6"
-pytest = "^8.3.4"
-pre-commit = "^4.1.0"
-
-[tool.poetry]
-package-mode = false
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.3.5",
+    "ruff>=0.11.10",
+]
