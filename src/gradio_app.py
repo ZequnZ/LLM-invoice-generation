@@ -4,7 +4,6 @@ from datetime import datetime
 
 import gradio as gr
 import redis
-
 from chat_llm import Thread
 from schema import LLMResponse
 from utils import extract_reasoning_and_invoice, load_system_prompt

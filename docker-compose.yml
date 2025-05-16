@@ -6,10 +6,20 @@ services:
     
     # For local testing
     volumes:
+      - ./src/:/app/src/
       - type: bind
-        source: ./.env
-        target: /app/.env
-      # - ./src/:/app/src/
+        source: pyproject.toml
+        target: /app/pyproject.toml
+      - type: bind
+        source: uv.lock
+        target: /app/uv.lock
+      - type: bind
+        source: Taskfile.yml
+        target: /app/Taskfile.yml
+      - type: bind
+        source: ruff.toml
+        target: /app/ruff.toml
+    env_file: ".env"
     stdin_open: true
     tty: true
     command: gradio src/gradio_app.py
