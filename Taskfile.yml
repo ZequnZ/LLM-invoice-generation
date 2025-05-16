@@ -7,7 +7,7 @@ tasks:
   linter-watch:
     desc: Run ruff linter in the watched mode.
     cmds:
-      - poetry run ruff check . --watch
+      - uv run ruff check . --watch
 
   linter:
     desc: Run ruff linter and fix the suggested changes for the codebase
@@ -16,44 +16,44 @@ tasks:
       SRC_DIR:
         sh: if [ -d "src" ]; then echo src; else echo app; fi
     cmds:
-      - poetry run ruff check . --fix --verbose --config "src=['.', '{{ .SRC_DIR }}']"
+      - uv run ruff check . --fix --verbose --config "src=['.', '{{ .SRC_DIR }}']"
 
   formatter:
     desc: Run ruff formatter to clean up the codebase
     dir: '{{ .USER_WORKING_DIR }}'
     cmds:
-      - poetry run ruff format . --verbose
+      - uv run ruff format . --verbose
 
   checker:
     desc: Run type checker.
     cmds:
-      - poetry run mypy ./src --check-untyped-defs
+      - uv run mypy ./src --check-untyped-defs
 
   run-test:
     desc: Run tests(unit, integration and more...) in TESTDIR(default=tests) folder
     dir: '{{ .USER_WORKING_DIR }}'
     cmds:
-      - poetry run pytest ./src/{{ .TESTDIR }} -sv --durations=0
+      - uv run pytest ./src/{{ .TESTDIR }} -sv --durations=0
 
   precommit:
     desc: Run pre-commit
     cmds:
-      - poetry run pre-commit run
+      - uv run pre-commit run
 
   check-updatable-libs:
-    desc: Run poetry to see if libs can be updated
+    desc: Run uv to see if libs can be updated
     cmds:
-      - poetry show --outdated --no-interaction
+      - uv show --outdated --no-interaction
 
   install-ruff:
     desc: Install ruff
     vars:
       RUFF_VERSION:
-        sh: echo $(poetry show ruff | tr -d ' ' | grep '^version:' | cut -d':' -f2)
+        sh: echo $(uv show ruff | tr -d ' ' | grep '^version:' | cut -d':' -f2)
     cmds:
       - /usr/local/bin/pip install --user ruff=={{ .RUFF_VERSION }}
 
   activate-venv:
     desc: Activate virtual environment
     cmds:
-      - source $(poetry env info --path)/bin/activate
+      - source $(uv env info --path)/bin/activate
