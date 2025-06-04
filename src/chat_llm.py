@@ -32,7 +32,7 @@ class Thread:
 
     def __init__(self, sys_prompt: str = "an assistant"):
         self.message_stack = [Message(role="system", content=sys_prompt)]
-        self.model = "gpt-4o"
+        self.model = "gpt-4.1"
         self.total_tokens = 0
         self.total_prompt_tokens = 0
         self.total_completion_tokens = 0
