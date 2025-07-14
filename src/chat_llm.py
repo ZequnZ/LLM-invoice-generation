@@ -106,10 +106,11 @@ class Thread:
 
         if show_all:
             for message in self.message_stack:
-                print(f"role: {message['role']}\n\n content:{message['content']}")
+                print(f"role: {message['role']}\n\nContent:{message['content']}")
         else:
             if verbose:
                 print(f"Input:\n {content}\n")
                 print(f"Output:\n {response_message['content']}")
+                # print(f"Output type: {type(response_message['content'])}")
 
         return response_message
