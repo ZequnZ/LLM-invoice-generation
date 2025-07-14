@@ -1,14 +1,6 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
-
-
-class Reasoning(BaseModel):
-    """
-    Represents the reasoning output for an invoice generation task.
-    """
-
-    Analysis: str = Field(..., title="Analysis of the invoice generation task")
-    Decisions: str = Field(..., title="Decisions made for the invoice")
-    Calculations: str = Field(..., title="Calculations performed for the invoice")
 
 
 class InvoiceItem(BaseModel):
@@ -25,9 +17,47 @@ class InvoiceItem(BaseModel):
 
     name: str = Field(..., title="Description of the item", example="Web Development")
     quantity: int = Field(..., title="Quantity of the item", example=50)
-    unit_price: float = Field(..., title="Unit price of the item", example=50.0)
-    tax_rate: float = Field(..., title="Tax rate for the item", example=18)
-    total_price: float = Field(..., title="Total price for the item", example=2500.0)
+    unit_price: float | str = Field(..., title="Unit price of the item", example=50.0)
+    tax_rate: float | str = Field(..., title="Tax rate for the item", example=18)
+    total_price: float | str = Field(
+        ..., title="Total price for the item", example=2500.0
+    )
+
+
+PLACEHOLDER = Literal["PLACEHOLDER"]
+
+
+class UnclearInvoiceItem(InvoiceItem):
+    """
+    Represents an unclear item or service in an invoice, with extra attribute as placeholder.
+
+    Attributes:
+        name (str): Description of the item.
+        quantity (int): Quantity of the item.
+        unit_price (float): Unit price of the item.
+        tax_rate (float): Tax rate for the item.
+        total_price (float): Total price for the item.
+    """
+
+    # PLACEHOLDER = "PLACEHOLDER"
+
+    name: str | PLACEHOLDER = Field(
+        default="PLACEHOLDER",
+        title="Description of the item",
+        example="Web Development",
+    )
+    quantity: int | PLACEHOLDER = Field(
+        default="PLACEHOLDER", title="Quantity of the item", example=50
+    )
+    unit_price: float | PLACEHOLDER = Field(
+        default="PLACEHOLDER", title="Unit price of the item", example=50.0
+    )
+    tax_rate: float | PLACEHOLDER = Field(
+        default="PLACEHOLDER", title="Tax rate for the item", example=18
+    )
+    total_price: float | PLACEHOLDER = Field(
+        default="PLACEHOLDER", title="Total price for the item", example=2500.0
+    )
 
 
 class Invoice(BaseModel):
@@ -82,9 +112,9 @@ class Invoice(BaseModel):
         example="Email: billing@xyzenterprises.com",
     )
     items: list[InvoiceItem] = Field(..., title="List of items or services billed")
-    subtotal: float = Field(..., title="Subtotal amount", example=2740.0)
-    tax: float = Field(..., title="Tax amount", example=274.0)
-    total_due: float = Field(..., title="Total amount due", example=3014.0)
+    subtotal: float | str = Field(..., title="Subtotal amount", example=2740.0)
+    tax: float | str = Field(..., title="Tax amount", example=274.0)
+    total_due: float | str = Field(..., title="Total amount due", example=3014.0)
     payment_terms: str = Field(
         ...,
         title="Payment terms and methods",
@@ -106,6 +136,44 @@ class NotInvoiced(BaseModel):
     """
 
     output: str = Field(..., title="output when for not generating the invoice")
+
+
+class ReasoningAnalysis(BaseModel):
+    """
+    Represents the analysis output for an invoice generation task.
+    """
+
+    analysis: str = Field(..., title="Analysis of the invoice generation task")
+    clear_items: list[InvoiceItem] = Field(
+        ..., title="List of items with clear and complete information for the invoice"
+    )
+    unclear_items: list[UnclearInvoiceItem] = Field(
+        ..., title="List of items with incomplete or unclear information"
+    )
+
+
+class Reasoning(BaseModel):
+    """
+    Represents the reasoning output for an invoice generation task.
+    """
+
+    Analysis: ReasoningAnalysis = Field(
+        ..., title="Analysis of the invoice generation task"
+    )
+    is_valid_invoice: bool = Field(
+        ..., title="Boolean indicating if input is valid for creating an invoice"
+    )
+    is_completed_items: bool = Field(
+        ..., title="Boolean indicating if all item information is clear and complete"
+    )
+    decision_analysis: str = Field(
+        ..., title="Analysis explaining the decision whether to create the invoice"
+    )
+    Calculations: str = Field(
+        ...,
+        title="Calculations performed for the invoice",
+        description="Only included when is_valid_invoice is True",
+    )
 
 
 class LLMResponse(BaseModel):

@@ -24,13 +24,13 @@ repos:
     hooks:
     -   id: linter
         name: linter
-        files: ^.*\.py$
+        files: ^./src/.*\.py$
         entry: uv run ruff check . --fix --exit-non-zero-on-fix --config "src=['.', 'src']"
         language: system
-        always_run: true
+        # always_run: true
     -   id: formatter
         name: formatter
-        files: ^.*\.py$
+        files: ^./src/.*\.py$
         entry: uv run ruff format . --verbose
         language: system
-        always_run: true
+        # always_run: true

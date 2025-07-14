@@ -40,7 +40,7 @@ From input message, there will be three part of information:
       But remember, Company Info is always included, and decide whether or not the input is for creating a invoice should not rely on this.
 
 If it is really for creating a invoice, then do some calculations for the prices and tax.
-This is very useful for the main goal in session 2. 
+This is very useful for the main goal in session 2.
 !!! DONOT STOP AFTER THIS SESSION BUT KEEP OUTPUTTING FOR SESSION 2 !!!
 
 Helpful notes here for reasoning:
@@ -50,11 +50,17 @@ Helpful notes here for reasoning:
 Write down how you think in the following format, including "```" at the begining and ending:
 ```
 Reasoning:
-   Analysis: (how you analyze the input)
+   ReasoningAnalysis:
+      analysis: (how you analyze the input, how do think if this is for creating a invoice)
+      clear_items: (list all items that have clear, complete information including quantity and specifications)
+      unclear_items: (list any items mentioned in the request that have incomplete or ambiguous information, convert item name as start case)
 
-   Decision: (YES or NO, with explanations. DO NOT STOP HERE)
+   is_valid_invoice: (true or false - boolean value indicating if this is a valid invoice request)
+   is_completed_items: (true or false - boolean value indicating if all item information is clear and complete)
 
-   Calculations: (OPTIONAL, only include this if Decision is yes, list how to calculate in correct orders)
+   decision_analysis: (detailed explanation of why the input is valid or invalid for invoice creation)
+
+   Calculations: (OPTIONAL, only include this if is_valid_invoice is true, list how to calculate in correct orders)
 ```
 
 Session 2: Output invoice in pre-defined json format.
@@ -67,9 +73,16 @@ If NO, then output:
    }
 ```
 
-Otherwise, ensure that the JSON output is properly structured, easy to read, and adheres to this format without any comments:
+Otherwise, ensure that the JSON output is properly structured, easy to read, and adheres to this format without any comments.
+Make sure to include all items and their details and show them properly, in a way that:
+1. For clear items, show everything as they are;
+2. For unclear items, show all known information and use string "PLACEHOLDER" for missing information, rather than leaving them 0.
 
-```invoice_json
+In cases unclear item exists, leave `subtotal`, `tax`, and `total_due` as string `PLACEHOLDER` and do not calculate them.
+
+Below are examples of how to structure the JSON output:
+
+```invoice_json(clear items)
    {
       "business_name": "Example Business",
       "business_address": "123 Example Street, City",
@@ -84,21 +97,56 @@ Otherwise, ensure that the JSON output is properly structured, easy to read, and
          {
             "item_name": "Web Development Service",
             "quantity": 50,
-            "unit_price": [Currency]50,
-            "tax_rate": "10%",
-            "total_price": [Currency]2500
+            "unit_price": 50,
+            "tax_rate": 10,
+            "total_price": 2500
          },
          {
             "item_name": "Hosting Service",
             "quantity": 12,
-            "unit_price": [Currency]20,
-            "tax_rate": "12.5%",
-            "total_price": [Currency]240
+            "unit_price": 20,
+            "tax_rate": 12.5,
+            "total_price": 240
          }
       ],
-      "subtotal": [Currency]2740,
-      "tax": [Currency]274,
-      "total_due": [Currency]3014,
+      "subtotal": 2740,
+      "tax": 274,
+      "total_due": 3014,
+      "payment_terms": "Net 14 days | Accepted methods: Bank Transfer, PayPal",
+      "notes": "Thank you for your business!"
+   }
+```
+
+```invoice_json(with unclear items)
+   {
+      "business_name": "Example Business",
+      "business_address": "123 Example Street, City",
+      "business_contact": "Phone: +1-234-567-890 | Email: example@example.com",
+      "invoice_number": "INV-2025001",
+      "invoice_date": "2025-02-25",
+      "due_date": "2025-03-10",
+      "customer_name": "John Doe",
+      "customer_address": "456 Customer Lane, Townsville",
+      "customer_contact": "john.doe@example.com",
+      "items": [
+         {
+            "item_name": "Web Development Service",
+            "quantity": 50,
+            "unit_price": 50,
+            "tax_rate": 10,
+            "total_price": 2500
+         },
+         {
+            "item_name": "Hosting Service",
+            "quantity": 12,
+            "unit_price": "PLACEHOLDER",
+            "tax_rate": "PLACEHOLDER",
+            "total_price": "PLACEHOLDER"
+         }
+      ],
+      "subtotal": "PLACEHOLDER",
+      "tax": "PLACEHOLDER",
+      "total_due": "PLACEHOLDER",
       "payment_terms": "Net 14 days | Accepted methods: Bank Transfer, PayPal",
       "notes": "Thank you for your business!"
    }

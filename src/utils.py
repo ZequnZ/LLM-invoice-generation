@@ -3,14 +3,14 @@ import json
 from schema import LLMResponse
 
 
-def extract_reasoning_and_invoice(response_content: str) -> tuple[str, dict]:
+def extract_reasoning_and_invoice(response_content: str) -> tuple[dict, dict]:
     """Extract reasoning and invoice from the LLM response content.
 
     Args:
         response_content (str): The response content from the LLM.
 
     Returns:
-        Tuple[str, dict]: The reasoning and the invoice as a dictionary.
+        Tuple[dict, dict]: The reasoning and the invoice as a dictionary.
     """
     # Parse the response content using the LLMResponse model
     response = LLMResponse.model_validate_json(response_content)
