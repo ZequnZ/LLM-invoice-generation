@@ -19,10 +19,10 @@ AZURE_API_VERSION=YOUR_AZURE_API_VERSION
 More model providers will be supported in the future.
 
 ### Development environment
-Here I use *pyenv* + *Poetry* to create and maintain a smooth experience.    
+Here I use *uv* to create and maintain a smooth experience.  
 You will just need to install the dependencies with the following command:
 ```shell
-poetry install
+uv sync
 ```
 
 ### Spin up the application
@@ -40,7 +40,7 @@ The App will be available at http://0.0.0.0:8002
 - [x] System prompt to enable reasoning and generate invoice  
 - [x] Gradio app interface  
 - [x] Structure output  
-- [x] Enable sending follow-up messages   
+- [x] Enable sending follow-up messages  
 - [ ] Test reasoning model  
 - [ ] Enable different LLM support in the config  
 - [ ] Analyze new items/customers that can be added back to the Redis  
