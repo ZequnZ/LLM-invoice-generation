@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class InvoiceItem(BaseModel):
@@ -23,28 +23,31 @@ class InvoiceItem(BaseModel):
         ..., title="Total price for the item", example=2500.0
     )
 
+    model_config = ConfigDict(extra="ignore")
+
 
 PLACEHOLDER = Literal["PLACEHOLDER"]
 
 
-class UnclearInvoiceItem(InvoiceItem):
+class NewInvoiceItem(InvoiceItem):
     """
-    Represents an unclear item or service in an invoice, with extra attribute as placeholder.
+    Represents a new item or service that doesn't exist in the company database yet.
+    This item will need to be added to the database after user confirmation.
+    Some fields may have PLACEHOLDER values that need to be filled by the user.
 
     Attributes:
         name (str): Description of the item.
         quantity (int): Quantity of the item.
-        unit_price (float): Unit price of the item.
-        tax_rate (float): Tax rate for the item.
-        total_price (float): Total price for the item.
+        unit_price (float | PLACEHOLDER): Unit price of the item (may need user input).
+        tax_rate (float | PLACEHOLDER): Tax rate for the item (may need user input).
+        total_price (float | PLACEHOLDER): Total price for the item.
+        is_new_item (bool): Always True to indicate this is a new item for the database.
     """
-
-    # PLACEHOLDER = "PLACEHOLDER"
 
     name: str | PLACEHOLDER = Field(
         default="PLACEHOLDER",
         title="Description of the item",
-        example="Web Development",
+        example="Custom Software Development",
     )
     quantity: int | PLACEHOLDER = Field(
         default="PLACEHOLDER", title="Quantity of the item", example=50
@@ -57,6 +60,11 @@ class UnclearInvoiceItem(InvoiceItem):
     )
     total_price: float | PLACEHOLDER = Field(
         default="PLACEHOLDER", title="Total price for the item", example=2500.0
+    )
+    is_new_item: bool = Field(
+        default=True,
+        title="Indicates this is a new item to be added to database",
+        description="Always True for new items that don't exist in company database",
     )
 
 
@@ -141,20 +149,26 @@ class NotInvoiced(BaseModel):
 class ReasoningAnalysis(BaseModel):
     """
     Represents the analysis output for an invoice generation task.
+    Now focuses on identifying available items vs new items that need to be added to database.
     """
 
     analysis: str = Field(..., title="Analysis of the invoice generation task")
-    clear_items: list[InvoiceItem] = Field(
-        ..., title="List of items with clear and complete information for the invoice"
+    available_items: list[InvoiceItem] = Field(
+        ...,
+        title="List of items that already exist in the company database with complete information",
+        description="These items have known pricing and details from the database",
     )
-    unclear_items: list[UnclearInvoiceItem] = Field(
-        ..., title="List of items with incomplete or unclear information"
+    new_items: list[NewInvoiceItem] = Field(
+        ...,
+        title="List of new items that don't exist in the company database",
+        description="These items need to be added to the database and may require user input for missing details",
     )
 
 
 class Reasoning(BaseModel):
     """
     Represents the reasoning output for an invoice generation task.
+    Updated to work with available vs new items concept.
     """
 
     Analysis: ReasoningAnalysis = Field(
@@ -163,8 +177,10 @@ class Reasoning(BaseModel):
     is_valid_invoice: bool = Field(
         ..., title="Boolean indicating if input is valid for creating an invoice"
     )
-    is_completed_items: bool = Field(
-        ..., title="Boolean indicating if all item information is clear and complete"
+    has_new_items: bool = Field(
+        ...,
+        title="Boolean indicating if there are new items that need to be added to database",
+        description="True if any items don't exist in company database and need user review",
     )
     decision_analysis: str = Field(
         ..., title="Analysis explaining the decision whether to create the invoice"
