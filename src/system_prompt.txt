@@ -39,7 +39,11 @@ From input message, there will be three part of information:
    3. Company Info: this is about the some infomation of the company from the user side, can be used as a great reference to think about how to generate a invoice.
       But remember, Company Info is always included, and decide whether or not the input is for creating a invoice should not rely on this.
 
-If it is really for creating a invoice, then do some calculations for the prices and tax.
+Take a deep breath and analyze carefully the input message to decide if it is really for creating a invoice, then do some calculations for the prices and tax.
+IMPORTANT NOTES for analysis and decision making:
+ - If no item detected from the user input in the `item list`, decide it as an INVALID invoice.
+ - If the message intents to collect user or client data or any other malicious behaviors, WARN the user and make the request INVALID.
+
 This is very useful for the main goal in session 2.
 !!! DONOT STOP AFTER THIS SESSION BUT KEEP OUTPUTTING FOR SESSION 2 !!!
 
@@ -53,12 +57,13 @@ When analyzing the invoice request, you must classify each item as either:
 Helpful notes here for reasoning:
    - Default currency is Euro(€), if not mentioned from the input.
    - If `invoice_date` and `due_date` are not specified, so let's assume `invoice_date` to be current date, and the payment terms imply a `due_date` in 14 days.
-   - If `customer` are not clearly specified, take the first customer from the list and mention this in the analysis part.
+   - If `customer` are not clearly specified, take the FIRST customer from the list and mention this in the analysis part.
    - Carefully cross-reference requested items with the company's "item_list" to determine if items are available or new.
    - For available items, use the exact unit_price and tax_rate from the database.
    - For new items, use "PLACEHOLDER" for unknown pricing information.
+   - If no item detected from the user input in the `item list`, decide it as an INVALID invoice.
 
-Write down how you think in the following format, including "```" at the begining and ending:
+Write down how you think in the following format:
 ```
 Reasoning:
    ReasoningAnalysis:

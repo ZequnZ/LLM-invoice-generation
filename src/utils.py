@@ -1,4 +1,6 @@
 import json
+import tomllib
+from pathlib import Path
 
 from schema import LLMResponse
 
@@ -35,3 +37,28 @@ def load_system_prompt(file_path: str) -> str:
     """
     with open(file_path) as file:
         return file.read().strip()
+
+
+def get_package_root() -> Path:
+    """Get the absolute path to the package root directory."""
+    return Path(__file__).parent.parent
+
+
+def get_project_version() -> str:
+    """Get the project version from pyproject.toml.
+
+    Returns:
+        str: The version string from pyproject.toml, or "0.1.0" as fallback if version cannot be read.
+    """
+    try:
+        # Get the project root directory
+        project_root = get_package_root()
+        pyproject_path = project_root / "pyproject.toml"
+
+        with open(pyproject_path, "rb") as f:
+            pyproject_data = tomllib.load(f)
+        version = pyproject_data.get("project", {}).get("version", "0.0.0-dev")
+        return version
+    except Exception as e:
+        print(f"Error reading version from pyproject.toml: {e}")
+        return "0.0.0-dev"  # Default fallback version
