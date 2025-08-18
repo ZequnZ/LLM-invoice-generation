@@ -1,5 +1,8 @@
 import json
+import logging
+import logging.config
 import os
+import time
 import uuid
 from datetime import datetime
 
@@ -7,11 +10,18 @@ import gradio as gr
 import redis
 
 from chat_llm import Thread
+from formats import format_company_info_as_markdown, format_reasoning_as_markdown
+from logger_config import base_log_config
 from schema import LLMResponse, NewInvoiceItem
-from utils import extract_reasoning_and_invoice, load_system_prompt
+from styles import INVOICE_STYLES
+from utils import extract_reasoning_and_invoice, get_project_version, load_system_prompt
+
+# Setup logger for this module
+logging.config.dictConfig(base_log_config)
+logger = logging.getLogger(__name__)
 
 # Initialize global variables
-thread = None
+# thread = None
 current_invoice_json = None  # Store the current invoice JSON for editing
 
 # Global variables to store available items (from database) and new items (to be added to database) with IDs
@@ -41,118 +51,6 @@ saved_items_global = set()  # Track IDs of items already saved to database
 # including any real-time edits made by users in the DataFrame. This ensures the LLM
 # has complete context about the current invoice state when processing follow-up requests.
 
-# Add CSS styles for invoice formatting and custom button styling
-INVOICE_STYLES = """
-<style>
-/* Simple styling for confirmation button */
-#confirm-invoice-button {
-    background-color: #28a745 !important;
-    border-color: #28a745 !important;
-    font-weight: bold !important;
-    transition: all 0.2s ease !important;
-}
-
-#confirm-invoice-button:hover {
-    background-color: #218838 !important;
-    border-color: #1e7e34 !important;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
-}
-
-/* Invoice container styling */
-.invoice-container {
-    font-family: Arial, sans-serif;
-    max-width: 100%;
-    margin: 0 auto;
-    padding: 20px;
-    border: 1px solid #e0e0e0;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    background-color: #fff;
-}
-.invoice-header {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 20px;
-    padding-bottom: 15px;
-    border-bottom: 2px solid #3498db;
-}
-.invoice-details {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 30px;
-}
-.invoice-details-left, .invoice-details-right {
-    flex-basis: 48%;
-}
-.invoice-title {
-    font-size: 24px;
-    color: #3498db;
-    margin-bottom: 5px;
-}
-.invoice-id {
-    font-weight: bold;
-    color: #555;
-}
-.section-title {
-    font-size: 18px;
-    color: #3498db;
-    margin-bottom: 10px;
-    border-bottom: 1px solid #e0e0e0;
-    padding-bottom: 5px;
-}
-.invoice-items {
-    width: 100%;
-    border-collapse: collapse;
-    margin-bottom: 20px;
-}
-.invoice-items th, .invoice-items td {
-    padding: 12px;
-    text-align: left;
-    border-bottom: 1px solid #e0e0e0;
-}
-.invoice-items th {
-    background-color: #f8f8f8;
-    color: #333;
-}
-.invoice-items tr:nth-child(even) {
-    background-color: #f9f9f9;
-}
-.invoice-items tr:hover {
-    background-color: #f1f1f1;
-}
-.invoice-total {
-    width: 60%;
-    margin-left: auto;
-    margin-right: 0;
-    border-collapse: collapse;
-    margin-bottom: 20px;
-}
-.invoice-total td {
-    padding: 8px;
-    text-align: right;
-}
-.invoice-total .total-row {
-    font-weight: bold;
-    font-size: 1.1em;
-    background-color: #f0f7ff;
-}
-.invoice-notes {
-    padding: 10px;
-    background-color: #f9f9f9;
-    border-left: 4px solid #3498db;
-    margin-bottom: 20px;
-}
-.payment-terms {
-    font-style: italic;
-    color: #555;
-    margin-bottom: 15px;
-}
-.contact-info {
-    color: #666;
-    font-size: 0.9em;
-}
-</style>
-"""
-
 
 def get_data_from_redis(company_id: str) -> dict:
     """Retrieve data from Redis for a given company ID.
@@ -175,7 +73,7 @@ def get_data_from_redis(company_id: str) -> dict:
             decode_responses=True,
         )
         client.ping()
-        print("Connected to Redis")
+        # logger.info("Connected to Redis")
 
         # Retrieve data from Redis
         company_data = client.hgetall(f"company:{company_id}")
@@ -197,7 +95,9 @@ def get_data_from_redis(company_id: str) -> dict:
         print(f"An error occurred: {e}")
 
 
-def generate_invoice(company_id: str, input_message: str) -> tuple[str, str, Thread]:
+def generate_invoice(
+    company_id: str, input_message: str, session_state: dict
+) -> tuple[str, str, Thread]:
     """Generate an invoice using the LLM based on the company ID and input message.
 
     Args:
@@ -207,7 +107,8 @@ def generate_invoice(company_id: str, input_message: str) -> tuple[str, str, Thr
     Returns:
         Tuple[str, str, Thread]: The reasoning, generated invoice, and the Thread instance.
     """
-    global thread
+    thread = session_state["thread"]
+    logger.info(f"Current token usage: {thread.total_tokens}")
     # Get data from Redis
     company_data = get_data_from_redis(company_id)
     if not company_data:
@@ -219,11 +120,11 @@ def generate_invoice(company_id: str, input_message: str) -> tuple[str, str, Thr
     user_input = f"{input_message}\n\nCurrent Date: {current_date}\n\nCompany Info:\n{json.dumps(company_data, indent=2)}"
     # print(user_input)
 
-    # Load the system prompt from the file
-    sys_prompt = load_system_prompt("src/system_prompt.txt")
+    # # Load the system prompt from the file
+    # sys_prompt = load_system_prompt("src/system_prompt.txt")
 
-    # Initialize the Thread with the system prompt
-    thread = Thread(sys_prompt=sys_prompt)
+    # # Initialize the Thread with the system prompt
+    # thread = Thread(sys_prompt=sys_prompt)
 
     # Call the LLM and get the response
     response = thread.send_message(
@@ -233,52 +134,12 @@ def generate_invoice(company_id: str, input_message: str) -> tuple[str, str, Thr
         verbose=True,
         response_format=LLMResponse,
     )
+    logger.info(f"Current token usage after user input: {thread.total_tokens}")
 
     # Extract reasoning and invoice from the response
     reasoning, invoice = extract_reasoning_and_invoice(response["content"])
 
     return reasoning, invoice, thread
-
-
-def format_company_info_as_markdown(company_data: dict) -> str:
-    """Format company data as a readable markdown structure.
-
-    Args:
-        company_data (dict): The company data dictionary.
-
-    Returns:
-        str: Formatted company information in Markdown.
-    """
-    if not company_data:
-        return "### Company does not exist"
-
-    markdown = ""
-
-    # General Company Info
-    markdown += "#### Business Details\n"
-    markdown += f"**Name**: {company_data.get('business_name', 'N/A')}\n\n"
-    markdown += f"**Address**: {company_data.get('business_address', 'N/A')}\n\n"
-    markdown += f"**Contact**: {company_data.get('business_contact', 'N/A')}\n\n"
-
-    # Items
-    if "item_list" in company_data and company_data["item_list"]:
-        markdown += "#### Available Items\n\n"
-        markdown += "| Item Name | Unit Price (Tax included)  | Tax Rate |\n"
-        markdown += "|----------|------------|----------|\n"
-
-        for item in company_data["item_list"]:
-            markdown += f"| {item.get('item_name', 'N/A')} | €{item.get('unit_price', 0):.2f} | {item.get('tax_rate', 0)}% |\n"
-        markdown += "\n"
-
-    # Customers
-    if "customer_list" in company_data and company_data["customer_list"]:
-        markdown += "#### Customers\n\n"
-        for i, customer in enumerate(company_data["customer_list"], 1):
-            markdown += f"**Customer {i}**: {customer.get('customer_name', 'N/A')}\n\n"
-            markdown += f"**Address**: {customer.get('customer_address', 'N/A')}\n\n"
-            markdown += f"**Contact**: {customer.get('customer_contact', 'N/A')}\n\n"
-
-    return markdown
 
 
 def display_company_info(company_id: str) -> str:
@@ -290,118 +151,16 @@ def display_company_info(company_id: str) -> str:
     Returns:
         str: The company information in Markdown format.
     """
+    # logger.info(f"Displaying company info for company ID: {company_id}")
     company_data = get_data_from_redis(company_id)
+    # logger.info(f"Company data: {company_data}")
     if not company_data:
         return "### Company does not exist"
 
     return format_company_info_as_markdown(company_data)
 
 
-def format_items_as_markdown_table(items: list) -> str:
-    """Format a list of invoice items as a markdown table.
-
-    Args:
-        items (list): List of invoice items with name, quantity, unit_price, etc.
-
-    Returns:
-        str: Formatted markdown table of items.
-    """
-    if not items:
-        return "No relevant items found."
-
-    # Create table header
-    table = "| Item Name | Quantity | Unit Price | Tax Rate | Total |\n"
-    table += "|----------|----------|------------|----------|-------|\n"
-
-    # Add each item as a row
-    for item in items:
-        name = item.get("name", "")
-        quantity = item.get("quantity", "")
-        unit_price = (
-            f"€{item.get('unit_price', 0):.2f}"
-            if isinstance(item.get("unit_price"), float)
-            else item.get("unit_price")
-        )
-        tax_rate = (
-            f"€{item.get('tax_rate', 0):.2f}"
-            if isinstance(item.get("tax_rate"), float)
-            else item.get("tax_rate")
-        )
-        total = (
-            f"€{item.get('total_price', 0):.2f}"
-            if isinstance(item.get("total_price"), float)
-            else item.get("total_price")
-        )
-        table += f"| {name} | {quantity} | {unit_price} | {tax_rate} | {total} |\n"
-
-    return table
-
-
-def format_reasoning_as_markdown(reasoning: dict, header: str = "") -> str:  # noqa: C901
-    """Format the reasoning dictionary as Markdown with an optional header.
-    Handles nested structure with Analysis containing analysis text and relevant_items.
-    Also handles the refactored decision structure with is_valid_invoice and decision_analysis.
-
-    Args:
-        reasoning (dict): The reasoning dictionary.
-        header (str): The header to be displayed at the beginning.
-
-    Returns:
-        str: The formatted reasoning in Markdown.
-    """
-    markdown = f"### {header}\n\n" if header else ""
-
-    # Process each key in the reasoning dictionary
-    for key, value in reasoning.items():
-        # Special handling for Analysis if it has the nested structure
-        if key == "Analysis" and isinstance(value, dict):
-            markdown += "#### Analysis\n"
-
-            # Add the analysis text
-            if "analysis" in value:
-                markdown += value["analysis"] + "\n\n"
-
-            # Add available items table (items from company database)
-            if "available_items" in value and value["available_items"]:
-                markdown += "**Available Items (From Company Database):**\n\n"
-                markdown += (
-                    format_items_as_markdown_table(value["available_items"]) + "\n\n"
-                )
-
-            # Add new items table (items to be added to database)
-            if "new_items" in value and value["new_items"]:
-                markdown += "**New Items (To Be Added to Database):**\n\n"
-                markdown += format_items_as_markdown_table(value["new_items"]) + "\n\n"
-
-        # Special handling for is_valid_invoice (boolean)
-        elif key == "is_valid_invoice":
-            valid_status = "✅ Valid" if value else "❌ Invalid"
-            markdown += f"#### Invoice Request Status\n{valid_status}\n\n"
-
-        # Special handling for has_new_items (boolean)
-        elif key == "has_new_items":
-            items_status = (
-                "🆕 Has New Items" if value else "✅ All Items Available in Database"
-            )
-            markdown += f"#### Item Status\n{items_status}\n\n"
-
-        # Special handling for decision_analysis
-        elif key == "decision_analysis":
-            markdown += f"#### Decision Explanation\n{value}\n\n"
-
-        # Special handling for Calculations (only shown if is_valid_invoice is true)
-        elif key == "Calculations":
-            if reasoning.get("is_valid_invoice", False):
-                markdown += f"#### Calculations\n{value}\n\n"
-
-        # Standard handling for any other fields
-        else:
-            markdown += f"#### {key}\n{value}\n\n"
-
-    return markdown
-
-
-def assign_ids_to_new_items(new_items):
+def assign_ids_to_new_items(new_items: list) -> dict:
     """
     Assign unique IDs to new items that need to be added to the database.
 
@@ -442,8 +201,7 @@ def get_invoice_html(  # noqa: C901
     for item in new_items_dict.values():
         # Ensure proper type conversion for edited values from DataFrame
         processed_item = item.copy()
-        print("processed_item:", processed_item)
-        print(processed_item.get("tax_rate") == "")
+        logger.info(f"processed_item: {json.dumps(processed_item, indent=2)}")
 
         # Handle quantity conversion
         if processed_item.get("quantity") not in ["PLACEHOLDER", "", None]:
@@ -483,17 +241,19 @@ def get_invoice_html(  # noqa: C901
                 )
                 processed_item["total_price"] = total_price
             except Exception as e:
-                print(f"Error computing total price for new item: {e}")
+                logger.error(f"Error computing total price for new item: {e}")
                 processed_item["total_price"] = "PLACEHOLDER"
 
             # Create NewInvoiceItem object and convert to dict
             new_item_obj = NewInvoiceItem(**processed_item)
             new_items_list.append(new_item_obj.model_dump())
         except Exception as e:
-            print(f"Error creating NewInvoiceItem: {e}, using processed_item directly")
+            logger.error(
+                f"Error creating NewInvoiceItem: {e}, using processed_item directly"
+            )
             new_items_list.append(processed_item)
 
-    print("new_items_list:", new_items_list)
+    # print("new_items_list:", new_items_list)
     invoice_data["items"] = available_items + new_items_list
 
     # Recalculate totals
@@ -527,7 +287,7 @@ def get_invoice_html(  # noqa: C901
                 quantity = int(float(quantity))  # Handle cases like "5.0"
                 item["quantity"] = quantity
             except (ValueError, TypeError) as e:
-                print(f"Error converting quantity '{quantity}' to int: {e}")
+                logger.error(f"Error converting quantity '{quantity}' to int: {e}")
                 quantity = 0
         elif not isinstance(quantity, int | float):
             quantity = 0
@@ -538,7 +298,9 @@ def get_invoice_html(  # noqa: C901
                 unit_price = float(unit_price)
                 item["unit_price"] = unit_price
             except (ValueError, TypeError) as e:
-                print(f"Error converting unit_price '{unit_price}' to float: {e}")
+                logger.error(
+                    f"Error converting unit_price '{unit_price}' to float: {e}"
+                )
                 unit_price = 0.0
         elif not isinstance(unit_price, int | float):
             unit_price = 0.0
@@ -549,7 +311,7 @@ def get_invoice_html(  # noqa: C901
                 tax_rate = float(tax_rate)
                 item["tax_rate"] = tax_rate
             except (ValueError, TypeError) as e:
-                print(f"Error converting tax_rate '{tax_rate}' to float: {e}")
+                logger.error(f"Error converting tax_rate '{tax_rate}' to float: {e}")
                 tax_rate = 0.0
         elif not isinstance(tax_rate, int | float):
             tax_rate = 0.0
@@ -562,26 +324,27 @@ def get_invoice_html(  # noqa: C901
         subtotal += total_price
         tax += total_price * float(tax_rate) / 100.0
 
-        print(
+        logger.info(
             f"Calculated new item: {item.get('name')} - Qty:{quantity} × €{unit_price} = €{total_price} (Tax: {tax_rate}%)"
         )
     total_due = subtotal + tax if total_due != "PLACEHOLDER" else "PLACEHOLDER"
     invoice_data["subtotal"] = subtotal
     invoice_data["tax"] = tax
     invoice_data["total_due"] = total_due
-    print("invoice_data:", invoice_data)
+    # print("invoice_data:", invoice_data)
     invoice_html = format_invoice_as_html(json.dumps(invoice_data))
     return invoice_data, invoice_html
 
 
-def update_reasoning_and_invoice(
-    company_id: str, input_message: str, header: str = ""
+def get_reasoning_and_invoice(
+    company_id: str, input_message: str, session_state: dict, header: str = ""
 ) -> tuple[str, str, gr.update, gr.update, gr.update, gr.update, list | None]:
     """Update the reasoning output first and then the invoice output after a delay.
 
     Args:
         company_id (str): The ID of the company.
         input_message (str): The input message from the user.
+        session_state (dict): The session state.
         header (str): The header to be displayed at the beginning of the reasoning.
 
     Returns:
@@ -589,8 +352,10 @@ def update_reasoning_and_invoice(
         hiding loading message, showing follow-up group, showing confirmation group,
         and the list of unclear items for the DataFrame if there are any.
     """
-    global available_items_global, new_items_global
-    reasoning, invoice, _ = generate_invoice(company_id, input_message)
+    # logger.info(f"User input to generate invoice: {input_message}")
+    reasoning, invoice, _ = generate_invoice(company_id, input_message, session_state)
+    # logger.info("LLM call completed")
+    # logger.info(f"session_state['thread'].total_tokens: {session_state['thread'].total_tokens}")
     reasoning_json = json.loads(reasoning)
     reasoning_markdown = format_reasoning_as_markdown(reasoning_json, header)
 
@@ -599,15 +364,15 @@ def update_reasoning_and_invoice(
     new_items = reasoning_json.get("Analysis", {}).get("new_items", [])
     new_items_dict = assign_ids_to_new_items(new_items)
 
-    print("available_items_global:", available_items)
-    print("new_items_global:", new_items_dict)
+    session_state["available_items"] = available_items
+    session_state["new_items_dict"] = new_items_dict
+
+    print("available_items:", available_items)
+    logger.info(f"new_items_dict: {json.dumps(new_items_dict, indent=2)}")
 
     invoice_data, invoice_html = get_invoice_html(
         invoice, available_items, new_items_dict
     )
-
-    available_items_global = available_items
-    new_items_global = new_items_dict
 
     # Check if the invoice is valid and completed
     is_valid_invoice = reasoning_json.get("is_valid_invoice", False)
@@ -624,17 +389,16 @@ def update_reasoning_and_invoice(
         # Prepare DataFrame data for new items that need to be added to database
         new_items_df = [
             [
-                new_items_global[item].get("name", ""),
-                new_items_global[item].get("quantity", ""),
-                new_items_global[item].get("unit_price", ""),
-                new_items_global[item].get("tax_rate", ""),
+                new_items_dict[item].get("name", ""),
+                new_items_dict[item].get("quantity", ""),
+                new_items_dict[item].get("unit_price", ""),
+                new_items_dict[item].get("tax_rate", ""),
             ]
-            for item in new_items_global
+            for item in new_items_dict
         ]
 
     # Store the original invoice JSON for later use with the DataFrame
-    global current_invoice_json
-    current_invoice_json = json.dumps(invoice_data)
+    session_state["current_invoice_json"] = json.dumps(invoice_data)
 
     # Return updates to show results and hide loading
     return (
@@ -697,12 +461,13 @@ def save_item_to_database(company_id: str, item_data: dict) -> bool:
         new_item = {
             "item_name": item_data.get("name", ""),
             "unit_price": float(item_data.get("unit_price", 0)),
-            "tax_rate": float(item_data.get("tax_rate", 0))
+            "tax_rate": float(item_data.get("tax_rate", 0)),
         }
         print("new_item:", new_item)
         # Check if item already exists (by name)
         item_exists = any(
-            existing_item.get("item_name", "").lower().strip() == new_item["item_name"].lower().strip()
+            existing_item.get("item_name", "").lower().strip()
+            == new_item["item_name"].lower().strip()
             for existing_item in current_items
         )
 
@@ -716,7 +481,9 @@ def save_item_to_database(company_id: str, item_data: dict) -> bool:
         # Save updated item_list back to Redis
         client.hset(f"company:{company_id}", "item_list", json.dumps(current_items))
 
-        print(f"Successfully saved item '{new_item['item_name']}' to company {company_id} database")
+        print(
+            f"Successfully saved item '{new_item['item_name']}' to company {company_id} database"
+        )
         return True
 
     except Exception as e:
@@ -751,32 +518,33 @@ def save_multiple_items_to_database(company_id: str, items_data: dict) -> dict:
     return results
 
 
-def create_new_items_interface():
+def create_new_items_interface(session_state: dict):
     """
     Create individual item cards with save buttons for the new items management.
     This is called when new items are detected.
     """
-    global new_items_global
+    new_items_dict = session_state.get("new_items_dict", {})
+    saved_items = session_state.get("saved_items", set())
 
     # Clear any existing content and create new item cards
     items_html = ""
 
-    for i, (item_id, item) in enumerate(new_items_global.items(), 1):
-        status_icon = "🔄" if item_id not in saved_items_global else "✅"
-        status_text = "Not Saved" if item_id not in saved_items_global else "Saved"
+    for i, (item_id, item) in enumerate(new_items_dict.items(), 1):
+        status_icon = "🔄" if item_id not in saved_items else "✅"
+        status_text = "Not Saved" if item_id not in saved_items else "Saved"
 
         items_html += f"""
 <div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; margin: 10px 0; background: #f9f9f9;">
     <div style="display: flex; align-items: center; justify-content: space-between;">
-        <h4 style="margin: 0; color: #333;">Item {i}: {item.get('name', 'Unnamed Item')}</h4>
+        <h4 style="margin: 0; color: #333;">Item {i}: {item.get("name", "Unnamed Item")}</h4>
         <div style="display: flex; align-items: center;">
             <span style="margin-right: 10px; font-weight: bold;">{status_icon} {status_text}</span>
         </div>
     </div>
     <div style="margin-top: 10px; display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; align-items: center;">
-        <div><strong>Item Name:</strong> {item.get('name', '')}</div>
-        <div><strong>Unit Price:</strong> €{item.get('unit_price', 0)}</div>
-        <div><strong>Tax Rate:</strong> {item.get('tax_rate', 0)}%</div>
+        <div><strong>Item Name:</strong> {item.get("name", "")}</div>
+        <div><strong>Unit Price:</strong> €{item.get("unit_price", 0)}</div>
+        <div><strong>Tax Rate:</strong> {item.get("tax_rate", 0)}%</div>
     </div>
 </div>
 """
@@ -784,57 +552,186 @@ def create_new_items_interface():
     return items_html
 
 
-def handle_invoice_confirmation():
+def schedule_reset_with_status(session_state: dict, status_message: str):
+    """
+    Unified function to schedule app reset and show status message.
+
+    Args:
+        session_state (dict): The current session state
+        status_message (str): The message to show to the user
+
+    Returns:
+        gr.update: Update for confirmation_status component
+    """
+    # Schedule reset
+    session_state["reset_scheduled"] = True
+
+    # Return status update
+    return gr.update(value=status_message, visible=True)
+
+
+def handle_invoice_confirmation(session_state: dict):
     """
     Enhanced invoice confirmation that shows individual item cards for easy management.
     """
-    global new_items_global, saved_items_global
-
+    new_items_dict = session_state["new_items_dict"]
     # Reset saved items tracking for new confirmation
-    saved_items_global.clear()
+    session_state["saved_items"] = set()
 
     # Check if there are new items to manage
-    if new_items_global:
+    if new_items_dict:
         confirmation_html = f"""
 ## 🆕 New Items Detected!
 
-This invoice contains **{len(new_items_global)} new items** that need to be added to your company database.
+    This invoice contains **{len(new_items_dict)} new items** that need to be added to your company database.
 
-{create_new_items_interface()}
+{create_new_items_interface(session_state)}
 
 **💡 Tip:** Use the "Save All Items" button below to save all items at once, or contact support if you need to edit individual item values.
+
+*Click "Save All Items" to save everything and automatically reset the form.*
 """
 
         # Create dropdown choices for individual item saving
         item_choices = []
-        for i, (item_id, item) in enumerate(new_items_global.items(), 1):
-            item_name = item.get('name', f'Item {i}')
-            item_choices.append((f"{i}. {item_name} (€{item.get('unit_price', 0)}, {item.get('tax_rate', 0)}%)", item_id))
+        for i, (item_id, item) in enumerate(new_items_dict.items(), 1):
+            item_name = item.get("name", f"Item {i}")
+            item_choices.append(
+                (
+                    f"{i}. {item_name} (€{item.get('unit_price', 0)}, {item.get('tax_rate', 0)}%)",
+                    item_id,
+                )
+            )
 
         return [
-            gr.update(value=confirmation_html, visible=True),
-            gr.update(visible=True),
+            gr.update(
+                value=confirmation_html, visible=True
+            ),  # Show confirmation status
+            gr.update(visible=True),  # Show new items modal
             gr.update(visible=False),  # Hide the old table
-            gr.update(choices=item_choices, value=None)  # Update dropdown choices
+            gr.update(choices=item_choices, value=None),  # Update dropdown choices
         ]
     else:
-        # No new items, just confirm the invoice
-        confirmation_html = """
-## ✅ Invoice Confirmed!
+        # No new items, just confirm the invoice - schedule reset and show status
+        status_message = """## ✅ Invoice Confirmed!
 
 The invoice has been successfully processed and saved to the system.
 **Thank you for using the invoice generation system!**
-"""
+
+*The form will automatically reset in 5 seconds...*"""
+
+        schedule_reset_with_status(session_state, status_message)
 
         return [
-            gr.update(value=confirmation_html, visible=True),
-            gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(choices=[], value=None)  # Clear dropdown choices
+            gr.update(value=status_message, visible=True),  # Show confirmation status
+            gr.update(visible=False),  # Hide new items modal
+            gr.update(visible=False),  # Hide the old table
+            gr.update(choices=[], value=None),  # Clear dropdown choices
         ]
 
 
-def save_item_by_id(company_id: str, item_id: str):
+def reset_app_state(session_state: dict):
+    """
+    Reset application state and clear input fields after a successful invoice confirmation.
+
+    Args:
+        session_state (dict): The current session state
+
+    Returns:
+        tuple: Updates for various UI components
+    """
+    global \
+        current_invoice_json, \
+        available_items_global, \
+        new_items_global, \
+        saved_items_global
+
+    # Reset the thread to a new thread with the system prompt
+    session_state["thread"] = Thread(
+        sys_prompt=load_system_prompt("src/system_prompt.txt")
+    )
+
+    # Reset all state variables completely
+    session_state["available_items"] = []
+    session_state["new_items_dict"] = {}
+    session_state["current_invoice_json"] = None
+    session_state["saved_items"] = set()
+    session_state["reset_scheduled"] = False
+
+    # Also reset global variables for safety (even though they should not be used)
+    current_invoice_json = None
+    available_items_global = []
+    new_items_global = {}
+    saved_items_global = set()
+
+    # Clear any other session state keys that might exist
+    keys_to_remove = []
+    for key in session_state.keys():
+        if key not in [
+            "thread",
+            "available_items",
+            "new_items_dict",
+            "current_invoice_json",
+            "saved_items",
+            "reset_scheduled",
+        ]:
+            keys_to_remove.append(key)
+
+    for key in keys_to_remove:
+        del session_state[key]
+
+    # Return updates for UI components
+    return (
+        gr.update(value=""),  # Clear input message
+        gr.update(value=""),  # Clear follow-up message
+        gr.update(visible=False),  # Hide results row
+        gr.update(visible=False),  # Hide follow-up group
+        gr.update(visible=False),  # Hide confirmation group
+        gr.update(visible=False),  # Hide new items group
+        gr.update(value=""),  # Clear reasoning output
+        gr.update(value=""),  # Clear invoice output
+        gr.update(value=[]),  # Clear new items DataFrame
+        gr.update(value="", visible=False),  # Clear and hide confirmation status
+        gr.update(visible=False),  # Hide confirm button
+        gr.update(visible=False),  # Hide new items modal
+    )
+
+
+def check_for_reset(session_state: dict):
+    """
+    Check if a reset has been scheduled and execute it if needed.
+    This function is called periodically by the interval component to implement the delayed reset.
+
+    Args:
+        session_state (dict): The current session state
+
+    Returns:
+        tuple: Updates for various UI components or no-op updates if no reset is scheduled
+    """
+    if session_state.get("reset_scheduled", False):
+        logger.info("Executing scheduled app reset...")
+        time.sleep(5)  # Wait for 5 seconds before resetting
+        return reset_app_state(session_state)
+
+    # Return no-op updates for all outputs if no reset is scheduled
+    # This prevents the UI from changing when no reset is needed
+    return (
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+        gr.update(),
+    )
+
+
+def save_item_by_id(company_id: str, item_id: str, session_state: dict):
     """
     Save a specific item by its ID and return status updates.
 
@@ -845,7 +742,8 @@ def save_item_by_id(company_id: str, item_id: str):
     Returns:
         tuple: Status message, company info update, and updated confirmation status
     """
-    global new_items_global, saved_items_global
+    new_items_dict = session_state["new_items_dict"]
+    saved_items = session_state["saved_items"]
 
     try:
         # Check if item_id is provided
@@ -853,116 +751,84 @@ def save_item_by_id(company_id: str, item_id: str):
             return "❌ Please select an item to save", gr.update(), gr.update()
 
         # Check if already saved
-        if item_id in saved_items_global:
+        if item_id in saved_items:
             return "ℹ️ Item already saved to database", gr.update(), gr.update()
 
         # Get item data directly from global state
-        if item_id not in new_items_global:
+        if item_id not in new_items_dict:
             return "❌ Item not found", gr.update(), gr.update()
 
-        item_data = new_items_global[item_id].copy()
+        item_data = new_items_dict[item_id].copy()
 
         # Save to database using the actual item data
         success = save_item_to_database(company_id, item_data)
 
         if success:
             # Mark as saved
-            saved_items_global.add(item_id)
+            saved_items.add(item_id)
 
-            # Refresh company info automatically
-            company_info_updated = display_company_info(company_id)
+            # Check if all items are now saved
+            all_items_saved = len(saved_items) == len(new_items_dict)
 
-            # Update the confirmation status to show current state
-            updated_confirmation_html = f"""
+            # Schedule reset if all items have been saved
+            if all_items_saved:
+                # Use unified reset approach
+                status_message = """## ✅ All items saved successfully!
+
+All new items have been added to your company database.
+**Thank you for using the invoice generation system!**
+
+*The form will automatically reset in 5 seconds...*"""
+
+                schedule_reset_with_status(session_state, status_message)
+
+                return (
+                    "✅ All items saved successfully!",
+                    gr.update(value=display_company_info(company_id)),
+                    gr.update(
+                        value=status_message, visible=True
+                    ),  # Show unified status
+                    gr.update(visible=False),  # Hide modal
+                )
+            else:
+                # Not all items saved yet, keep modal open
+                # Refresh company info automatically
+                company_info_updated = display_company_info(company_id)
+
+                # Update the confirmation status to show current state
+                updated_confirmation_html = f"""
 ## 🆕 New Items Management
 
-This invoice contains **{len(new_items_global)} new items** that need to be added to your company database.
+This invoice contains **{len(new_items_dict)} new items** that need to be added to your company database.
 
-{create_new_items_interface()}
+{create_new_items_interface(session_state)}
 
 **💡 Tip:** Select individual items from the dropdown to save them one by one, or use "Save All Items" to save everything at once.
 """
 
-            return (
-                f"✅ Successfully saved '{item_data.get('name')}' to database!",
-                gr.update(value=company_info_updated),
-                gr.update(value=updated_confirmation_html)
-            )
+                status_message = (
+                    f"✅ Successfully saved '{item_data.get('name')}' to database!"
+                )
+
+                return (
+                    status_message,
+                    gr.update(value=company_info_updated),
+                    gr.update(value=updated_confirmation_html),
+                    gr.update(),  # Keep modal visibility unchanged
+                )
         else:
-            return f"❌ Failed to save '{item_data.get('name')}'", gr.update(), gr.update()
+            return (
+                f"❌ Failed to save '{item_data.get('name')}'",
+                gr.update(),
+                gr.update(),
+            )
 
     except Exception as e:
         print(f"Error saving item {item_id}: {e}")
         return f"❌ Error: {str(e)}", gr.update(), gr.update()
 
 
-def save_individual_item(company_id: str, new_items_table: list, row_index: int) -> tuple[gr.update, gr.update]:
-    """
-    Save an individual item directly from new_items_global to the database.
-
-    Args:
-        company_id (str): The company ID
-        new_items_table (list): Current table data (for display update only)
-        row_index (int): Index of the row to save (1-based)
-
-    Returns:
-        tuple: Updated table data and status message
-    """
-    global new_items_global, saved_items_global
-
-    try:
-        # Convert from 1-based to 0-based indexing
-        array_index = row_index - 1
-
-        # Get item IDs list
-        item_ids = list(new_items_global.keys())
-
-        if array_index < 0 or array_index >= len(item_ids):
-            return gr.update(), gr.update(value=f"❌ Invalid row number. Please select between 1 and {len(item_ids)}")
-
-        item_id = item_ids[array_index]
-
-        # Check if already saved
-        if item_id in saved_items_global:
-            return gr.update(), gr.update(value="ℹ️ Item already saved to database")
-
-        # Get item data directly from global state (source of truth)
-        if item_id not in new_items_global:
-            return gr.update(), gr.update(value="❌ Item not found")
-
-        item_data = new_items_global[item_id].copy()
-
-        # Save to database using the actual item data
-        success = save_item_to_database(company_id, item_data)
-
-        if success:
-            # Mark as saved
-            saved_items_global.add(item_id)
-
-            # Update the table display to reflect the save status
-            updated_table = []
-            for i, (id, item) in enumerate(new_items_global.items()):
-                status = "✅ Saved" if id in saved_items_global else "Not Saved"
-                updated_table.append([
-                    item.get("name", ""),
-                    item.get("unit_price", ""),
-                    item.get("tax_rate", ""),
-                    status
-                ])
-
-            return (
-                gr.update(value=updated_table),
-                gr.update(value=f"✅ Successfully saved '{item_data.get('name')}' to database!")
-            )
-        else:
-            return gr.update(), gr.update(value=f"❌ Failed to save '{item_data.get('name')}'")
-
-    except Exception as e:
-        print(f"Error saving individual item: {e}")
-        return gr.update(), gr.update(value=f"❌ Error: {str(e)}")
-
-
-def save_all_items(company_id: str, new_items_table: list = None):
+def save_all_items(company_id: str, session_state: dict, new_items_table: list = None):
     """
     Save all unsaved items directly from new_items_global to the database.
 
@@ -973,20 +839,21 @@ def save_all_items(company_id: str, new_items_table: list = None):
     Returns:
         tuple: Status message, company info update, and updated confirmation status
     """
-    global new_items_global, saved_items_global
+    new_items_dict = session_state["new_items_dict"]
+    saved_items = session_state["saved_items"]
 
     try:
-        print("new_items_global:", new_items_global)
+        print("new_items_dict:", new_items_dict)
         saved_count = 0
         failed_count = 0
         already_saved_count = 0
 
         # Work directly with new_items_global (source of truth)
-        for item_id, item_data in new_items_global.items():
+        for item_id, item_data in new_items_dict.items():
             print("Processing item_id:", item_id, "item_data:", item_data)
 
             # Skip if already saved
-            if item_id in saved_items_global:
+            if item_id in saved_items:
                 already_saved_count += 1
                 continue
 
@@ -994,7 +861,7 @@ def save_all_items(company_id: str, new_items_table: list = None):
             success = save_item_to_database(company_id, item_data.copy())
 
             if success:
-                saved_items_global.add(item_id)
+                saved_items.add(item_id)
                 saved_count += 1
             else:
                 failed_count += 1
@@ -1008,25 +875,59 @@ def save_all_items(company_id: str, new_items_table: list = None):
         if failed_count > 0:
             status_parts.append(f"❌ {failed_count} failed")
 
-        status_message = " | ".join(status_parts) if status_parts else "No items to save"
+        status_message = (
+            " | ".join(status_parts) if status_parts else "No items to save"
+        )
 
-        # Refresh company info automatically if any items were saved
-        company_info_updated = gr.update()
-        if saved_count > 0:
-            company_info_updated = gr.update(value=display_company_info(company_id))
+        # Check if all items are saved
+        all_items_saved = (saved_count + already_saved_count) == len(
+            new_items_dict
+        ) and failed_count == 0
 
-        # Update the confirmation status to show current state
-        updated_confirmation_html = f"""
+        # Schedule reset if all items were saved successfully
+        if all_items_saved:
+            # Use unified reset approach
+            status_message = """## ✅ All items saved successfully!
+
+All new items have been added to your company database.
+**Thank you for using the invoice generation system!**
+
+*The form will automatically reset in 5 seconds...*"""
+
+            schedule_reset_with_status(session_state, status_message)
+
+            return (
+                "✅ All items saved successfully!",
+                gr.update(value=display_company_info(company_id))
+                if saved_count > 0
+                else gr.update(),
+                gr.update(value=status_message, visible=True),  # Show unified status
+                gr.update(visible=False),  # Hide modal
+            )
+        else:
+            # Not all items saved yet, keep modal open
+            # Refresh company info automatically if any items were saved
+            company_info_updated = gr.update()
+            if saved_count > 0:
+                company_info_updated = gr.update(value=display_company_info(company_id))
+
+            # Update the confirmation status to show current state
+            updated_confirmation_html = f"""
 ## 🆕 New Items Management
 
-This invoice contains **{len(new_items_global)} new items** that need to be added to your company database.
+This invoice contains **{len(new_items_dict)} new items** that need to be added to your company database.
 
-{create_new_items_interface()}
+{create_new_items_interface(session_state)}
 
 **💡 Tip:** Items are automatically saved to your company database. Company information will be refreshed automatically after saving.
 """
 
-        return status_message, company_info_updated, gr.update(value=updated_confirmation_html)
+            return (
+                status_message,
+                company_info_updated,
+                gr.update(value=updated_confirmation_html),
+                gr.update(),  # Keep modal visibility unchanged
+            )
 
     except Exception as e:
         print(f"Error saving all items: {e}")
@@ -1034,7 +935,7 @@ This invoice contains **{len(new_items_global)} new items** that need to be adde
 
 
 def send_follow_up_message(  # noqa: C901
-    company_id: str, follow_up_message: str
+    company_id: str, follow_up_message: str, session_state: dict
 ) -> tuple[str, str, gr.update, gr.update, gr.update]:
     """Send a follow-up message to the LLM and update reasoning and invoice.
 
@@ -1050,7 +951,7 @@ def send_follow_up_message(  # noqa: C901
         Tuple[str, str, gr.update, gr.update, bool]: The updated reasoning, generated invoice,
         update objects for showing results and hiding loading message, and boolean indicating if invoice is valid.
     """
-    global thread
+    thread = session_state["thread"]
     if not thread:
         return (
             "No initial invoice generation found. Please generate an invoice first.",
@@ -1074,7 +975,7 @@ def send_follow_up_message(  # noqa: C901
     # ENHANCED FOLLOW-UP CONTEXT:
     # Include current state of items to ensure LLM has up-to-date information
     # This includes any edits the user made to unclear items via the DataFrame
-    current_items_context = format_current_items_for_followup()
+    current_items_context = format_current_items_for_followup(session_state)
 
     # Combine the follow-up message with current invoice state
     user_input = f"{follow_up_message}\n{current_items_context}"
@@ -1097,30 +998,34 @@ def send_follow_up_message(  # noqa: C901
     is_valid_invoice = reasoning_json.get("is_valid_invoice")
 
     # PRESERVE USER EDITS: Handle global state updates carefully to maintain user edits
-    global available_items_global, new_items_global
+    # global available_items_global, new_items_global
 
     # Get new items from LLM response
-    new_available_items = reasoning_json.get("Analysis", {}).get("available_items", [])
-    new_new_items = reasoning_json.get("Analysis", {}).get("new_items", [])
+    refreshed_available_items = reasoning_json.get("Analysis", {}).get(
+        "available_items", []
+    )
+    refreshed_new_items = reasoning_json.get("Analysis", {}).get("new_items", [])
 
     # If LLM provides new analysis, update accordingly
     # But preserve any user edits to existing new items when possible
-    if new_available_items is not None:
-        available_items_global = new_available_items
+    if refreshed_available_items is not None:
+        session_state["available_items"] = refreshed_available_items
 
-    if new_new_items is not None:
+    if refreshed_new_items is not None:
         # PRESERVE USER EDITS: Properly merge new items while preserving user edits
-        new_new_items_dict = assign_ids_to_new_items(new_new_items)
+        refreshed_new_items_dict = assign_ids_to_new_items(refreshed_new_items)
 
         # If there are existing user edits, try to preserve them
-        if new_items_global:
+        if session_state["new_items_dict"]:
             preserved_items = {}
 
             # For each new item from LLM response
-            for new_id, new_item in new_new_items_dict.items():
+            for new_id, new_item in refreshed_new_items_dict.items():
                 # Check if there's a similar item in existing edits (match by name)
                 matching_existing = None
-                for existing_id, existing_item in new_items_global.items():
+                for existing_id, existing_item in session_state[
+                    "new_items_dict"
+                ].items():
                     if (
                         existing_item.get("name", "").lower().strip()
                         == new_item.get("name", "").lower().strip()
@@ -1146,10 +1051,10 @@ def send_follow_up_message(  # noqa: C901
                     # New item not found in existing edits, use as-is
                     preserved_items[new_id] = new_item
 
-            new_items_global = preserved_items
+            session_state["new_items_dict"] = preserved_items
         else:
             # No existing edits to preserve
-            new_items_global = new_new_items_dict
+            session_state["new_items_dict"] = refreshed_new_items_dict
     else:
         # If no new items provided, keep existing ones (preserving user edits)
         pass
@@ -1157,18 +1062,17 @@ def send_follow_up_message(  # noqa: C901
     # Generate updated invoice HTML with preserved user edits and recalculated totals
     # We need to regenerate with current global state (including preserved edits)
     invoice_data, invoice_html = get_invoice_html(
-        invoice, available_items_global, new_items_global
+        invoice, session_state["available_items"], session_state["new_items_dict"]
     )
 
     # Update the current invoice JSON with recalculated values
-    global current_invoice_json
-    current_invoice_json = json.dumps(invoice_data)
+    session_state["current_invoice_json"] = json.dumps(invoice_data)
 
     has_new_items = reasoning_json.get("has_new_items", False)
 
     # Determine if invoice is completed (no new items or all new items filled)
     # Use the current global new items state (which includes any user edits)
-    invoice_completed = is_invoice_completed(new_items_global)
+    invoice_completed = is_invoice_completed(session_state["new_items_dict"])
 
     # Show confirm button only if invoice is valid AND completed
     show_confirm_button = is_valid_invoice and invoice_completed
@@ -1193,7 +1097,7 @@ def send_follow_up_message(  # noqa: C901
     )
 
 
-def format_current_items_for_followup() -> str:
+def format_current_items_for_followup(session_state: dict) -> str:
     """
     Format the current state of available and new items for follow-up messages.
 
@@ -1204,25 +1108,26 @@ def format_current_items_for_followup() -> str:
     Returns:
         str: Formatted string containing current item states for LLM context
     """
-    global available_items_global, new_items_global
+    available_items = session_state["available_items"]
+    new_items_dict = session_state["new_items_dict"]
 
     context = "\n=== CURRENT INVOICE STATE ===\n"
 
     # Add available items that exist in company database
-    if available_items_global:
+    if available_items:
         context += "\nAVAILABLE ITEMS (From company database):\n"
-        for idx, item in enumerate(available_items_global, 1):
+        for idx, item in enumerate(available_items, 1):
             context += f"{idx}. {item.get('name', 'N/A')} - Qty: {item.get('quantity', 'N/A')}, "
             context += f"Unit Price: €{item.get('unit_price', 0):.2f}, "
             context += f"Tax Rate: {item.get('tax_rate', 0)}%, "
             context += f"Total: €{item.get('total_price', 0):.2f}\n"
 
     # Add new items with their current state (including user edits)
-    if new_items_global:
+    if new_items_dict:
         context += (
             "\nNEW ITEMS TO BE ADDED TO DATABASE (Current state after user edits):\n"
         )
-        for idx, (item_id, item) in enumerate(new_items_global.items(), 1):
+        for idx, (item_id, item) in enumerate(new_items_dict.items(), 1):
             context += f"{idx}. {item.get('name', 'PLACEHOLDER')} - "
             context += f"Qty: {item.get('quantity', 'PLACEHOLDER')}, "
             context += f"Unit Price: {item.get('unit_price', 'PLACEHOLDER')}, "
@@ -1241,7 +1146,7 @@ def format_current_items_for_followup() -> str:
                     "   → All fields completed by user (ready to add to database)\n"
                 )
 
-    if not available_items_global and not new_items_global:
+    if not available_items and not new_items_dict:
         context += "\nNo items currently in the invoice.\n"
 
     context += "\n=== END CURRENT STATE ===\n"
@@ -1301,7 +1206,7 @@ def format_invoice_as_html(invoice_json: str) -> str:
 
         # Add each item
         for item in invoice_data.get("items", []):
-            print("item:", item)
+            # print("item:", item)
             html += "<tr>"
             html += f"<td>{item.get('name', '')}</td>"
             html += f"<td>{item.get('quantity', '')}</td>"
@@ -1384,12 +1289,12 @@ def extract_new_items_for_df(reasoning_json: dict) -> list:
         ]
         for item in new_items
     ]
-    print("new_items:", new_items)
+    # print("new_items:", new_items)
     return new_items
 
 
 def update_invoice_with_edited_items(
-    new_items_df: list, invoice_json_str: str
+    new_items_df: list, session_state: dict
 ) -> tuple[str, gr.update]:
     """Update the invoice with the edited new items and return completion status.
 
@@ -1401,14 +1306,18 @@ def update_invoice_with_edited_items(
         tuple[str, gr.update]: The updated invoice HTML and confirmation group visibility update.
     """
     try:
-        global current_invoice_json, available_items_global, new_items_global
+        # global current_invoice_json, available_items_global, new_items_global
+        invoice_json_str = session_state["current_invoice_json"]
+        available_items = session_state["available_items"]
+        new_items_dict = session_state["new_items_dict"]
+
         # Map DataFrame rows back to IDs using the order of new_items_global keys
-        keys = list(new_items_global.keys())
+        keys = list(new_items_dict.keys())
         for idx, row in new_items_df.iterrows():
-            print(row)
+            # print(row)
             id = keys[idx]
             name, quantity, unit_price, tax_rate = row
-            new_items_global[id].update(
+            new_items_dict[id].update(
                 {
                     "name": name,
                     "quantity": quantity,
@@ -1416,14 +1325,14 @@ def update_invoice_with_edited_items(
                     "tax_rate": tax_rate,
                 }
             )
-        print("new_items_global:", new_items_global)
+        print("new_items_dict:", new_items_dict)
         invoice_data, invoice_html = get_invoice_html(
-            invoice_json_str, available_items_global, new_items_global
+            invoice_json_str, available_items, new_items_dict
         )
-        current_invoice_json = json.dumps(invoice_data)
+        session_state["current_invoice_json"] = json.dumps(invoice_data)
 
         # Check if invoice is now completed and should show confirm button
-        invoice_completed = is_invoice_completed(new_items_global)
+        invoice_completed = is_invoice_completed(new_items_dict)
         # Assume invoice is valid since we're editing existing new items
         show_confirm_button = invoice_completed
 
@@ -1469,8 +1378,46 @@ def is_invoice_completed(new_items_dict: dict) -> bool:
     return True
 
 
+def handle_modal_close(session_state: dict):
+    """
+    Close the modal, keep confirm button visible, show status message, and schedule reset
+
+    Args:
+        session_state (dict): The current session state
+
+    Returns:
+        list: Updates for visibility of modal, table, item selector, and confirmation status
+    """
+    status_message = """## ✅ Invoice process completed!
+
+New items management closed. The invoice has been processed.
+**Thank you for using the invoice generation system!**
+
+*The form will automatically reset in 5 seconds...*"""
+
+    # Schedule reset and get status update
+    schedule_reset_with_status(session_state, status_message)
+
+    # Close modal components and show status
+    return [
+        gr.update(visible=False),  # Hide modal
+        gr.update(visible=False),  # Hide table
+        gr.update(choices=[], value=None),  # Clear selector
+        gr.update(value=status_message, visible=True),  # Show status message
+    ]
+
+
 with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
-    gr.Markdown("# Invoice Generation App - v 3.0")
+    # Initialize session state
+    session_state = gr.State(
+        {"thread": Thread(sys_prompt=load_system_prompt("src/system_prompt.txt"))}
+    )
+    logger.info(f"Session state: {session_state}")
+
+    gr.Markdown(f"# Invoice Generation App - v {get_project_version()}")
+
+    # Create a timer for periodic reset checking (every 5 seconds)
+    reset_timer = gr.Timer(5)
 
     # First row: Input data and company information
     with gr.Row():
@@ -1518,7 +1465,9 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
     # New Items Management Section with individual item cards
     with gr.Group(visible=False) as new_items_modal:
         gr.Markdown("### 📦 New Items Management")
-        gr.Markdown("The following items don't exist in your company database. Edit the values and click the save button for each item:")
+        gr.Markdown(
+            "The following items don't exist in your company database. Edit the values and click the save button for each item:"
+        )
 
         # Container for individual item cards - will be populated dynamically
         new_items_container = gr.Column()
@@ -1529,7 +1478,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
             datatype=["str", "number", "number", "str"],
             col_count=(4, "fixed"),
             interactive=True,
-            visible=False
+            visible=False,
         )
 
         gr.Markdown("---")
@@ -1543,28 +1492,19 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
                         label="Select Item to Save",
                         choices=[],
                         interactive=True,
-                        scale=2
+                        scale=2,
                     )
                     save_individual_button = gr.Button(
-                        "Save Selected",
-                        variant="secondary",
-                        size="sm",
-                        scale=1
+                        "Save Selected", variant="secondary", size="sm", scale=1
                     )
             with gr.Column(scale=1):
                 gr.Markdown("**💾 Save All:**")
                 save_all_button = gr.Button(
-                    "Save All Items",
-                    variant="primary",
-                    size="lg"
+                    "Save All Items", variant="primary", size="lg"
                 )
 
         with gr.Row():
-            close_modal_button = gr.Button(
-                "Close",
-                variant="secondary",
-                size="lg"
-            )
+            close_modal_button = gr.Button("Close", variant="secondary", size="lg")
 
         # Status message for save operations
         save_status = gr.Markdown(value="", visible=True)
@@ -1604,6 +1544,27 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
             gr.Markdown("### Reasoning")
             reasoning_output = gr.Markdown(label="")
 
+    # Connect the timer to check for scheduled resets every 5 seconds
+    reset_timer.tick(
+        fn=check_for_reset,
+        inputs=[session_state],
+        outputs=[
+            input_message,  # Clear input message
+            follow_up_message,  # Clear follow-up message
+            results_row,  # Hide results row
+            follow_up_group,  # Hide follow-up group
+            confirmation_group,  # Hide confirmation group
+            new_items_group,  # Hide new items group
+            reasoning_output,  # Clear reasoning output
+            invoice_output,  # Clear invoice output
+            new_items_df,  # Clear new items DataFrame
+            confirmation_status,  # Hide confirmation status
+            confirm_button,  # Hide confirm button
+            new_items_modal,  # Hide new items modal
+        ],
+        show_progress=False,
+    )
+
     company_id.change(fn=display_company_info, inputs=company_id, outputs=company_info)
 
     # First click handler - show loading message, hide results
@@ -1619,10 +1580,10 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
 
     # Second click handler - process invoice and update UI
     generate_button.click(
-        fn=lambda company_id, input_message: update_reasoning_and_invoice(
-            company_id, input_message
+        fn=lambda company_id, input_message, session_state: get_reasoning_and_invoice(
+            company_id, input_message, session_state
         ),
-        inputs=[company_id, input_message],
+        inputs=[company_id, input_message, session_state],
         outputs=[
             reasoning_output,
             invoice_output,
@@ -1633,13 +1594,6 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
             new_items_group,
             new_items_df,
         ],
-    )
-
-    # Enhanced confirmation button handler with modal support
-    confirm_button.click(
-        fn=handle_invoice_confirmation,
-        inputs=[],
-        outputs=[confirmation_status, new_items_modal, new_items_management_table, item_selector],
     )
 
     # Follow-up button - first show loading message, hide results and confirmation
@@ -1656,7 +1610,7 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
     # Follow-up button - process update and show results
     follow_up_button.click(
         fn=send_follow_up_message,
-        inputs=[company_id, follow_up_message],
+        inputs=[company_id, follow_up_message, session_state],
         outputs=[
             reasoning_output,
             invoice_output,
@@ -1668,17 +1622,12 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
         ],
     )
 
-    # # Update UI based on invoice validity after follow-up
-    # follow_up_button.click(
-    #     fn=lambda is_valid: (gr.update(visible=True), gr.update(visible=is_valid)),
-    #     inputs=[None],  # Will receive is_valid_invoice from send_follow_up_message
-    #     outputs=[buttons_container, confirmation_group],
-    # )
-
     # Apply edits button - update invoice with edited new items
     apply_edits_button.click(
-        fn=lambda df: update_invoice_with_edited_items(df, current_invoice_json),
-        inputs=[new_items_df],
+        fn=lambda df, session_state: update_invoice_with_edited_items(
+            df, session_state
+        ),
+        inputs=[new_items_df, session_state],
         outputs=[
             invoice_output,
             confirmation_group,
@@ -1687,8 +1636,10 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
 
     # Real-time update: whenever the DataFrame changes, update the invoice preview and confirm button visibility
     new_items_df.change(
-        fn=lambda df: update_invoice_with_edited_items(df, current_invoice_json),
-        inputs=[new_items_df],
+        fn=lambda df, session_state: update_invoice_with_edited_items(
+            df, session_state
+        ),
+        inputs=[new_items_df, session_state],
         outputs=[
             invoice_output,
             confirmation_group,
@@ -1696,27 +1647,44 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="blue")) as demo:
         show_progress=True,
     )
 
+    # Enhanced confirmation button handler with modal support
+    confirm_button.click(
+        fn=handle_invoice_confirmation,
+        inputs=[session_state],
+        outputs=[
+            confirmation_status,
+            new_items_modal,
+            new_items_management_table,
+            item_selector,
+        ],
+    )
+
     # New items management event handlers
 
     # Individual item save handler (with automatic company info refresh)
     save_individual_button.click(
         fn=save_item_by_id,
-        inputs=[company_id, item_selector],
-        outputs=[save_status, company_info, confirmation_status],
+        inputs=[company_id, item_selector, session_state],
+        outputs=[save_status, company_info, confirmation_status, new_items_modal],
     )
 
     # Save all items handler (with automatic company info refresh and status update)
     save_all_button.click(
         fn=save_all_items,
-        inputs=[company_id],
-        outputs=[save_status, company_info, confirmation_status],
+        inputs=[company_id, session_state],
+        outputs=[save_status, company_info, confirmation_status, new_items_modal],
     )
 
     # Close new items management section handler
     close_modal_button.click(
-        fn=lambda: [gr.update(visible=False), gr.update(visible=False), gr.update(choices=[], value=None)],
-        inputs=[],
-        outputs=[new_items_modal, new_items_management_table, item_selector],
+        fn=handle_modal_close,
+        inputs=[session_state],
+        outputs=[
+            new_items_modal,
+            new_items_management_table,
+            item_selector,
+            confirmation_status,
+        ],
     )
 
 if __name__ == "__main__":
